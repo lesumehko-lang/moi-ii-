@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101426">
+  <title>Мой ИИ</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo" aria-hidden="true">✦</div>
+    <div class="brand"><h1>Мой ИИ</h1><p id="status">Настоящая нейросеть · API</p></div>
+    <button class="clear" id="clear" type="button">Очистить</button>
+  </header>
+
+  <main id="chat" aria-live="polite">
+    <section class="welcome" id="welcome">
+      <div class="big">🤖</div>
+      <h2>Привет! Я твой ИИ</h2>
+      <p>Задавай вопросы, проси объяснить тему, придумать идею или помочь с кодом.</p>
+    </section>
+    <section class="quick" id="quick" aria-label="Быстрые вопросы">
+      <button data-q="Придумай идею для видео в TikTok">🎬 Идея для видео</button>
+      <button data-q="Объясни интересный научный факт простыми словами">💡 Интересный факт</button>
+      <button data-q="Помоги сделать простую игру на HTML">🎮 Создать игру</button>
+      <button data-q="Помоги разобраться с домашним заданием">📚 Помощь с учёбой</button>
+    </section>
+  </main>
+
+  <div class="composer">
+    <div class="inputrow">
+      <textarea id="input" rows="1" maxlength="4000" placeholder="Напиши сообщение..." aria-label="Сообщение"></textarea>
+      <button class="send" id="send" type="button" aria-label="Отправить">➤</button>
+    </div>
+    <div class="footnote">Ответы создаются нейросетью. Использование API может быть платным.</div>
+  </div>
+</div>
+</body>
+</html>
