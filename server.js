@@ -1,15 +1,17 @@
 
-const express = require("express");
-const path = require("path");
+import express from "express";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 app.post("/api/chat", (req, res) => {
-  const message = String(req.body.message || "").toLowerCase();
+  const message = String(req.body?.message || "").toLowerCase();
   let answer;
 
   if (message.includes("привет")) {
@@ -21,18 +23,14 @@ app.post("/api/chat", (req, res) => {
   } else if (message.includes("факт")) {
     answer = "🧠 Интересный факт: у осьминога три сердца!";
   } else if (message.includes("игр")) {
-    answer = "🎮 Идея игры: лабиринт, из которого нужно выбраться за 30 секунд.";
+    answer = "🎮 Идея игры: создай лабиринт, из которого нужно выбраться за 30 секунд.";
   } else if (message.includes("учёб") || message.includes("учеб")) {
     answer = "📚 Напиши школьное задание — попробуем разобраться!";
   } else {
-    answer = "🤖 Я пока работаю без нейросети и умею отвечать на простые вопросы. Попробуй написать «привет», «идея для видео» или «интересный факт».";
+    answer = "🤖 Я пока работаю без нейросети. Попробуй написать «привет», «идея для видео» или «интересный факт».";
   }
 
   res.json({ answer });
-});
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
 app.listen(PORT, () => {
