@@ -1,107 +1,47 @@
-const chat = document.getElementById("chat");
-const input = document.getElementById("input");
-const sendButton = document.getElementById("send");
-const statusText = document.getElementById("status");
-let messages = [];
-let busy = false;
 
-function addMessage(text, role) {
-  document.getElementById("welcome")?.remove();
-  document.getElementById("quick")?.remove();
-  const row = document.createElement("div");
-  row.className = `msg ${role === "user" ? "user" : "bot"}`;
-  if (role !== "user") {
-    const avatar = document.createElement("div");
-    avatar.className = "avatar";
-    avatar.textContent = "✦";
-    row.appendChild(avatar);
+const chat = document.querySelector("#chat");
+const input = document.querySelector("#message");
+const send = document.querySelector("#send");
+
+function answer(text) {
+  const q = text.toLowerCase();
+
+  if (q.includes("привет")) {
+    return "Привет! 👋 Я Мой ИИ. Чем займёмся?";
   }
-  const bubble = document.createElement("div");
-  bubble.className = "bubble";
-  bubble.textContent = text;
-  row.appendChild(bubble);
-  chat.appendChild(row);
-  chat.scrollTop = chat.scrollHeight;
-  return bubble;
+  if (q.includes("как тебя зовут")) {
+    return "Я Мой ИИ — твой помощник! 🤖";
+  }
+  if (q.includes("видео") || q.includes("тикток")) {
+    return "🎬 Идея: начни видео со слов «Вы не поверите, что случилось!» и покажи неожиданный финал.";
+  }
+  if (q.includes("факт")) {
+    return "🧠 Интересный факт: у осьминога три сердца!";
+  }
+  if (q.includes("игр")) {
+    return "🎮 Идея игры: создай лабиринт, где нужно найти выход за 30 секунд.";
+  }
+  if (q.includes("учёб") || q.includes("учеб")) {
+    return "📚 Напиши задание, и я помогу разобраться!";
+  }
+  if (q.includes("пока")) {
+    return "Пока! 👋 Возвращайся, когда понадоблюсь.";
+  }
+
+  return "🤖 Я пока умею отвечать на простые вопросы. Попробуй написать «привет», «идея для видео» или «интересный факт».";
 }
 
-function addTyping() {
-  const bubble = addMessage("", "assistant");
-  const dots = document.createElement("span");
-  dots.className = "typing";
-  for (let i = 0; i < 3; i++) dots.appendChild(document.createElement("i"));
-  bubble.appendChild(dots);
-  return bubble;
-}
+function sendMessage() {
+  const text = input.value.trim();
+  if (!text) return;
 
-async function send(text = input.value) {
-  const content = text.trim();
-  if (!content || busy) return;
-  busy = true;
-  sendButton.disabled = true;
-  input.disabled = true;
-  addMessage(content, "user");
-  messages.push({ role: "user", content });
+  chat.innerHTML += `<p><b>Ты:</b> ${text.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`;
+  chat.innerHTML += `<p><b>Мой ИИ:</b> ${answer(text)}</p>`;
   input.value = "";
-  input.style.height = "auto";
-  const waiting = addTyping();
-
-  // Отправляем только последние 20 сообщений, чтобы ограничить размер запроса.
-  const payload = messages.slice(-20);
-  try {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: payload })
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || `Ошибка сервера (${response.status})`);
-    waiting.textContent = data.reply || "ИИ вернул пустой ответ.";
-    messages.push({ role: "assistant", content: waiting.textContent });
-    statusText.textContent = "Подключение к ИИ активно";
-  } catch (error) {
-    waiting.textContent = `Не удалось получить ответ: ${error.message}\n\nПроверь, что сервер запущен и в .env указан правильный API-ключ.`;
-    // Не сохраняем неудачный ответ в историю, чтобы пользователь мог повторить вопрос.
-    messages.pop();
-    statusText.textContent = "Проверь подключение";
-  } finally {
-    busy = false;
-    sendButton.disabled = false;
-    input.disabled = false;
-    input.focus();
-    chat.scrollTop = chat.scrollHeight;
-  }
+  chat.scrollTop = chat.scrollHeight;
 }
 
-sendButton.addEventListener("click", () => send());
-input.addEventListener("input", () => {
-  input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+send.addEventListener("click", sendMessage);
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter") sendMessage();
 });
-input.addEventListener("keydown", event => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    send();
-  }
-});
-document.querySelectorAll("[data-q]").forEach(button => {
-  button.addEventListener("click", () => send(button.dataset.q));
-});
-document.getElementById("clear").addEventListener("click", () => {
-  messages = [];
-  chat.innerHTML = `
-    <section class="welcome" id="welcome">
-      <div class="big">🤖</div><h2>Привет! Я твой ИИ</h2>
-      <p>Задавай вопросы, проси объяснить тему, придумать идею или помочь с кодом.</p>
-    </section>
-    <section class="quick" id="quick" aria-label="Быстрые вопросы">
-      <button data-q="Придумай идею для видео в TikTok">🎬 Идея для видео</button>
-      <button data-q="Объясни интересный научный факт простыми словами">💡 Интересный факт</button>
-      <button data-q="Помоги сделать простую игру на HTML">🎮 Создать игру</button>
-      <button data-q="Помоги разобраться с домашним заданием">📚 Помощь с учёбой</button>
-    </section>`;
-  document.querySelectorAll("[data-q]").forEach(button => button.addEventListener("click", () => send(button.dataset.q)));
-});
-fetch("/api/health").then(r => r.json()).then(data => {
-  statusText.textContent = data.configured ? `ИИ готов · ${data.model}` : "Нужно настроить API-ключ";
-}).catch(() => { statusText.textContent = "Сервер недоступен"; });
