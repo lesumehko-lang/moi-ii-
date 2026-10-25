@@ -2,35 +2,80 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-app.use(express.json());
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error("Не настроены переменные Supabase в Render");
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+app.use(express.json({ limit: "20kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-app.post("/api/chat", (req, res) => {
-  const message = String(req.body?.message || "").toLowerCase();
-  let answer;
+app.post("/api/messages", async (req, res) => {
+  const { session_id, role, content } = req.body || {};
 
-  if (message.includes("привет")) {
-    answer = "Привет! 👋 Я Мой ИИ. Чем займёмся?";
-  } else if (message.includes("как тебя зовут")) {
-    answer = "Я Мой ИИ — твой помощник! 🤖";
-  } else if (message.includes("видео") || message.includes("тикток")) {
-    answer = "🎬 Идея для видео: начни с неожиданного вопроса и покажи смешной финал!";
-  } else if (message.includes("факт")) {
-    answer = "🧠 Интересный факт: у осьминога три сердца!";
-  } else if (message.includes("игр")) {
-    answer = "🎮 Идея игры: создай лабиринт, из которого нужно выбраться за 30 секунд.";
-  } else if (message.includes("учёб") || message.includes("учеб")) {
-    answer = "📚 Напиши школьное задание — попробуем разобраться!";
-  } else {
-    answer = "🤖 Я пока работаю без нейросети. Попробуй написать «привет», «идея для видео» или «интересный факт».";
+  if (
+    typeof session_id !== "string" ||
+    session_id.length > 100 ||
+    !["user", "assistant"].includes(role) ||
+    typeof content !== "string" ||
+    !content.trim() ||
+    content.length > 4000
+  ) {
+    return res.status(400).json({ error: "Некорректное сообщение" });
   }
 
-  res.json({ answer });
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .insert({
+      session_id,
+      role,
+      content: content.trim()
+    })
+    .select("id, role, content, created_at")
+    .single();
+
+  if (error) {
+    console.error("Ошибка сохранения сообщения:", error.message);
+    return res.status(500).json({ error: "Не удалось сохранить сообщение" });
+  }
+
+  res.json({ message: data });
+});
+
+app.get("/api/messages", async (req, res) => {
+  const sessionId = req.query.session_id;
+
+  if (
+    typeof sessionId !== "string" ||
+    !sessionId ||
+    sessionId.length > 100
+  ) {
+    return res.status(400).json({ error: "Некорректный идентификатор" });
+  }
+
+  const { data, error } = await supabase
+    .from("chat_messages")
+    .select("id, role, content, created_at")
+    .eq("session_id", sessionId)
+    .order("created_at", { ascending: true })
+    .limit(100);
+
+  if (error) {
+    console.error("Ошибка загрузки сообщений:", error.message);
+    return res.status(500).json({ error: "Не удалось загрузить сообщения" });
+  }
+
+  res.json({ messages: data });
 });
 
 app.listen(PORT, () => {
