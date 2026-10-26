@@ -1,83 +1,70 @@
 
-import express from "express";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { createClient } from "@supabase/supabase-js";
+app.post("/api/chat", async (req, res) => {
+  try {
+    const message = req.body?.message;
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    if (
+      typeof message !== "string" ||
+      !message.trim() ||
+      message.length > 4000
+    ) {
+      return res.status(400).json({
+        error: "Напиши сообщение длиной до 4000 символов"
+      });
+    }
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Не настроены переменные Supabase в Render");
-}
+    if (!apiKey) {
+      return res.status(500).json({
+        error: "Не настроен GEMINI_API_KEY в Render"
+      });
+    }
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: message.trim() }]
+            }
+          ]
+        })
+      }
+    );
 
-app.use(express.json({ limit: "20kb" }));
-app.use(express.static(path.join(__dirname, "public")));
+    const data = await response.json();
 
-app.post("/api/messages", async (req, res) => {
-  const { session_id, role, content } = req.body || {};
+    if (!response.ok) {
+      console.error("Gemini API error:", data.error?.message);
+      return res.status(502).json({
+        error: "Нейросеть не ответила. Проверь настройки Gemini API."
+      });
+    }
 
-  if (
-    typeof session_id !== "string" ||
-    session_id.length > 100 ||
-    !["user", "assistant"].includes(role) ||
-    typeof content !== "string" ||
-    !content.trim() ||
-    content.length > 4000
-  ) {
-    return res.status(400).json({ error: "Некорректное сообщение" });
+    const answer = data.candidates?.[0]?.content?.parts
+      ?.map(part => part.text || "")
+      .join("")
+      .trim();
+
+    if (!answer) {
+      return res.status(502).json({
+        error: "Нейросеть вернула пустой ответ"
+      });
+    }
+
+    res.json({ reply: answer });
+  } catch (error) {
+    console.error("Ошибка Gemini:", error.message);
+    res.status(500).json({
+      error: "Не удалось связаться с нейросетью"
+    });
   }
-
-  const { data, error } = await supabase
-    .from("chat_messages")
-    .insert({
-      session_id,
-      role,
-      content: content.trim()
-    })
-    .select("id, role, content, created_at")
-    .single();
-
-  if (error) {
-    console.error("Ошибка сохранения сообщения:", error.message);
-    return res.status(500).json({ error: "Не удалось сохранить сообщение" });
-  }
-
-  res.json({ message: data });
-});
-
-app.get("/api/messages", async (req, res) => {
-  const sessionId = req.query.session_id;
-
-  if (
-    typeof sessionId !== "string" ||
-    !sessionId ||
-    sessionId.length > 100
-  ) {
-    return res.status(400).json({ error: "Некорректный идентификатор" });
-  }
-
-  const { data, error } = await supabase
-    .from("chat_messages")
-    .select("id, role, content, created_at")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true })
-    .limit(100);
-
-  if (error) {
-    console.error("Ошибка загрузки сообщений:", error.message);
-    return res.status(500).json({ error: "Не удалось загрузить сообщения" });
-  }
-
-  res.json({ messages: data });
-});
-
-app.listen(PORT, () => {
-  console.log(`Мой ИИ запущен на порту ${PORT}`);
 });
