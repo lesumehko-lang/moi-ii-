@@ -20,26 +20,27 @@ function addMessage(role, content) {
   chat.appendChild(p);
 }
 
-function answer(text) {
-  const q = text.toLowerCase();
 
-  if (q.includes("привет")) return "Привет! Я Мой ИИ! 🤖";
-  if (q.includes("видео") || q.includes("тикток")) {
-    return "🎬 Идея: сними смешной эксперимент с неожиданной концовкой!";
-  }
-  if (q.includes("факт") || q.includes("науч")) {
-    return "🧠 У осьминога три сердца!";
-  }
-  if (q.includes("игр") || q.includes("html")) {
-    return "🎮 Можно создать игру, где нужно ловить падающие звёзды!";
-  }
-  if (q.includes("учёб") || q.includes("учеб") || q.includes("задан")) {
-    return "📚 Напиши задание, и я помогу тебе разобраться.";
-  }
-  if (q.includes("как тебя зовут")) return "Меня зовут Мой ИИ! 🤖";
+async function answer(text) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      message: text
+    })
+  });
 
-  return "Пока я умею отвечать на простые вопросы без API. Попробуй спросить про видео, факты или игры!";
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Ошибка нейросети");
+  }
+
+  return data.reply;
 }
+
 
 async function saveMessage(role, content) {
   const response = await fetch("/api/messages", {
