@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 
 const app = express();
@@ -10,10 +11,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: "20kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+// Подключение Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error("Не настроены переменные Supabase в Render");
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Модель Gemini
+const GEMINI_MODEL = "gemini-3.8-flash";
+
 // Создание нового чата
 app.post("/api/chats", async (req, res) => {
   try {
-    const sessionId = crypto.randomUUID();
+    const sessionId = randomUUID();
+
     const { data, error } = await supabase
       .from("chats")
       .insert({
@@ -54,10 +69,7 @@ app.get("/api/chats", async (req, res) => {
   }
 });
 
-// Модель Gemini
-const GEMINI_MODEL = "gemini-3.8-flash";
-
-// Получение ответа нейросети
+// Ответ Gemini
 app.post("/api/chat", async (req, res) => {
   try {
     const message = req.body?.message;
@@ -81,7 +93,10 @@ app.post("/api/chat", async (req, res) => {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      60000
+    );
 
     let response;
 
@@ -119,14 +134,16 @@ app.post("/api/chat", async (req, res) => {
       console.error(
         "Gemini API error:",
         response.status,
-        data.error?.message || "Неизвестная ошибка"
+        data.error?.message
       );
 
       return res.status(502).json({
         error:
-          response.status === 429
-            ? "Gemini перегружена или достигнут лимит запросов. Попробуй позже."
-            : `Ошибка Gemini (${response.status}). Проверь логи Render.`
+          response.status === 503
+            ? "Gemini временно перегружена. Попробуй позже."
+            : response.status === 429
+              ? "Достигнут лимит запросов Gemini."
+              : `Ошибка Gemini: ${response.status}`
       });
     }
 
@@ -138,30 +155,28 @@ app.post("/api/chat", async (req, res) => {
     if (!reply) {
       console.error(
         "Gemini вернула пустой ответ:",
-        JSON.stringify(data.promptFeedback || data.candidates?.[0]?.finishReason || {})
+        JSON.stringify(data.promptFeedback || {})
       );
 
       return res.status(502).json({
-        error: "Нейросеть не вернула текст. Попробуй задать вопрос иначе."
+        error: "Gemini не вернула текстовый ответ."
       });
     }
 
-    return res.json({ reply });
+    res.json({ reply });
   } catch (error) {
     console.error("Ошибка Gemini:", error.message);
 
-    return res.status(
-      error.name === "AbortError" ? 504 : 500
-    ).json({
+    res.status(error.name === "AbortError" ? 504 : 500).json({
       error:
         error.name === "AbortError"
-          ? "Нейросеть отвечала слишком долго. Попробуй ещё раз."
-          : "Не удалось связаться с нейросетью."
+          ? "Gemini не ответила за 60 секунд."
+          : "Не удалось связаться с Gemini."
     });
   }
 });
 
-// Сохранение сообщений в Supabase
+// Сохранение сообщений
 app.post("/api/messages", async (req, res) => {
   try {
     const { session_id, role, content } = req.body || {};
@@ -190,20 +205,13 @@ app.post("/api/messages", async (req, res) => {
       .select("id, role, content, created_at")
       .single();
 
-    if (error) {
-      console.error("Ошибка сохранения сообщения:", error.message);
+    if (error) throw error;
 
-      return res.status(500).json({
-        error: "Не удалось сохранить сообщение"
-      });
-    }
-
-    return res.json({ message: data });
+    res.json({ message: data });
   } catch (error) {
-    console.error("Ошибка сервера:", error.message);
-
-    return res.status(500).json({
-      error: "Внутренняя ошибка сервера"
+    console.error("Ошибка сохранения сообщения:", error.message);
+    res.status(500).json({
+      error: "Не удалось сохранить сообщение"
     });
   }
 });
@@ -230,20 +238,13 @@ app.get("/api/messages", async (req, res) => {
       .order("created_at", { ascending: true })
       .limit(100);
 
-    if (error) {
-      console.error("Ошибка загрузки сообщений:", error.message);
+    if (error) throw error;
 
-      return res.status(500).json({
-        error: "Не удалось загрузить сообщения"
-      });
-    }
-
-    return res.json({ messages: data });
+    res.json({ messages: data });
   } catch (error) {
-    console.error("Ошибка сервера:", error.message);
-
-    return res.status(500).json({
-      error: "Внутренняя ошибка сервера"
+    console.error("Ошибка загрузки сообщений:", error.message);
+    res.status(500).json({
+      error: "Не удалось загрузить историю"
     });
   }
 });
