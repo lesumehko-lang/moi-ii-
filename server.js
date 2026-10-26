@@ -10,15 +10,49 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: "20kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Supabase
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Создание нового чата
+app.post("/api/chats", async (req, res) => {
+  try {
+    const sessionId = crypto.randomUUID();
+    const { data, error } = await supabase
+      .from("chats")
+      .insert({
+        session_id: sessionId,
+        title: "Новый чат"
+      })
+      .select()
+      .single();
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error("Не настроены переменные Supabase в Render");
-}
+    if (error) throw error;
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+    res.json({ chat: data });
+  } catch (error) {
+    console.error("Ошибка создания чата:", error.message);
+    res.status(500).json({
+      error: "Не удалось создать чат"
+    });
+  }
+});
+
+// Получение списка чатов
+app.get("/api/chats", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("chats")
+      .select("session_id, title, created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+
+    res.json({ chats: data });
+  } catch (error) {
+    console.error("Ошибка загрузки чатов:", error.message);
+    res.status(500).json({
+      error: "Не удалось загрузить список чатов"
+    });
+  }
+});
 
 // Модель Gemini
 const GEMINI_MODEL = "gemini-3.8-flash";
