@@ -1,4 +1,3 @@
-
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,6 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.json({ limit: "20kb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+// Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -20,9 +20,10 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Настройки Gemini
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Модель Gemini
+const GEMINI_MODEL = "gemini-3.8-flash";
 
+// Получение ответа нейросети
 app.post("/api/chat", async (req, res) => {
   try {
     const message = req.body?.message;
@@ -84,14 +85,14 @@ app.post("/api/chat", async (req, res) => {
       console.error(
         "Gemini API error:",
         response.status,
-        data.error?.message
+        data.error?.message || "Неизвестная ошибка"
       );
 
       return res.status(502).json({
         error:
           response.status === 429
             ? "Gemini перегружена или достигнут лимит запросов. Попробуй позже."
-            : "Gemini не ответила. Проверь ключ, доступность модели и настройки API."
+            : `Ошибка Gemini (${response.status}). Проверь логи Render.`
       });
     }
 
@@ -103,7 +104,7 @@ app.post("/api/chat", async (req, res) => {
     if (!reply) {
       console.error(
         "Gemini вернула пустой ответ:",
-        data.promptFeedback || data.candidates?.[0]?.finishReason
+        JSON.stringify(data.promptFeedback || data.candidates?.[0]?.finishReason || {})
       );
 
       return res.status(502).json({
@@ -126,7 +127,7 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-// Сохранение сообщений
+// Сохранение сообщений в Supabase
 app.post("/api/messages", async (req, res) => {
   try {
     const { session_id, role, content } = req.body || {};
@@ -157,6 +158,7 @@ app.post("/api/messages", async (req, res) => {
 
     if (error) {
       console.error("Ошибка сохранения сообщения:", error.message);
+
       return res.status(500).json({
         error: "Не удалось сохранить сообщение"
       });
@@ -165,6 +167,7 @@ app.post("/api/messages", async (req, res) => {
     return res.json({ message: data });
   } catch (error) {
     console.error("Ошибка сервера:", error.message);
+
     return res.status(500).json({
       error: "Внутренняя ошибка сервера"
     });
@@ -195,6 +198,7 @@ app.get("/api/messages", async (req, res) => {
 
     if (error) {
       console.error("Ошибка загрузки сообщений:", error.message);
+
       return res.status(500).json({
         error: "Не удалось загрузить сообщения"
       });
@@ -203,13 +207,14 @@ app.get("/api/messages", async (req, res) => {
     return res.json({ messages: data });
   } catch (error) {
     console.error("Ошибка сервера:", error.message);
+
     return res.status(500).json({
       error: "Внутренняя ошибка сервера"
     });
   }
 });
 
+// Запуск сервера
 app.listen(PORT, () => {
   console.log(`Мой ИИ запущен на порту ${PORT}`);
 });
-           
