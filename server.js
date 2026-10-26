@@ -20,7 +20,9 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Настоящая нейросеть Gemini
+// Настройки Gemini
+const GEMINI_MODEL = "gemini-2.5-flash";
+
 app.post("/api/chat", async (req, res) => {
   try {
     const message = req.body?.message;
@@ -43,31 +45,53 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: message.trim() }]
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    let response;
+
+    try {
+      response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: "user",
+                parts: [{ text: message.trim() }]
+              }
+            ],
+            generationConfig: {
+              maxOutputTokens: 800,
+              temperature: 0.7
             }
-          ]
-        })
-      }
-    );
+          }),
+          signal: controller.signal
+        }
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const data = await response.json();
 
     if (!response.ok) {
-      console.error("Gemini API error:", data.error?.message);
+      console.error(
+        "Gemini API error:",
+        response.status,
+        data.error?.message
+      );
+
       return res.status(502).json({
-        error: "Ошибка Gemini API. Проверь настройки ключа и модели."
+        error:
+          response.status === 429
+            ? "Gemini перегружена или достигнут лимит запросов. Попробуй позже."
+            : "Gemini не ответила. Проверь ключ, доступность модели и настройки API."
       });
     }
 
@@ -77,90 +101,115 @@ app.post("/api/chat", async (req, res) => {
       .trim();
 
     if (!reply) {
+      console.error(
+        "Gemini вернула пустой ответ:",
+        data.promptFeedback || data.candidates?.[0]?.finishReason
+      );
+
       return res.status(502).json({
-        error: "Нейросеть не вернула ответ"
+        error: "Нейросеть не вернула текст. Попробуй задать вопрос иначе."
       });
     }
 
-    res.json({ reply });
+    return res.json({ reply });
   } catch (error) {
     console.error("Ошибка Gemini:", error.message);
-    res.status(500).json({
-      error: "Не удалось связаться с нейросетью"
+
+    return res.status(
+      error.name === "AbortError" ? 504 : 500
+    ).json({
+      error:
+        error.name === "AbortError"
+          ? "Нейросеть отвечала слишком долго. Попробуй ещё раз."
+          : "Не удалось связаться с нейросетью."
     });
   }
 });
 
 // Сохранение сообщений
 app.post("/api/messages", async (req, res) => {
-  const { session_id, role, content } = req.body || {};
+  try {
+    const { session_id, role, content } = req.body || {};
 
-  if (
-    typeof session_id !== "string" ||
-    !session_id ||
-    session_id.length > 100 ||
-    !["user", "assistant"].includes(role) ||
-    typeof content !== "string" ||
-    !content.trim() ||
-    content.length > 4000
-  ) {
-    return res.status(400).json({
-      error: "Некорректное сообщение"
-    });
-  }
+    if (
+      typeof session_id !== "string" ||
+      !session_id ||
+      session_id.length > 100 ||
+      !["user", "assistant"].includes(role) ||
+      typeof content !== "string" ||
+      !content.trim() ||
+      content.length > 4000
+    ) {
+      return res.status(400).json({
+        error: "Некорректное сообщение"
+      });
+    }
 
-  const { data, error } = await supabase
-    .from("chat_messages")
-    .insert({
-      session_id,
-      role,
-      content: content.trim()
-    })
-    .select("id, role, content, created_at")
-    .single();
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .insert({
+        session_id,
+        role,
+        content: content.trim()
+      })
+      .select("id, role, content, created_at")
+      .single();
 
-  if (error) {
-    console.error("Ошибка сохранения сообщения:", error.message);
+    if (error) {
+      console.error("Ошибка сохранения сообщения:", error.message);
+      return res.status(500).json({
+        error: "Не удалось сохранить сообщение"
+      });
+    }
+
+    return res.json({ message: data });
+  } catch (error) {
+    console.error("Ошибка сервера:", error.message);
     return res.status(500).json({
-      error: "Не удалось сохранить сообщение"
+      error: "Внутренняя ошибка сервера"
     });
   }
-
-  res.json({ message: data });
 });
 
 // Загрузка истории сообщений
 app.get("/api/messages", async (req, res) => {
-  const sessionId = req.query.session_id;
+  try {
+    const sessionId = req.query.session_id;
 
-  if (
-    typeof sessionId !== "string" ||
-    !sessionId ||
-    sessionId.length > 100
-  ) {
-    return res.status(400).json({
-      error: "Некорректный идентификатор"
-    });
-  }
+    if (
+      typeof sessionId !== "string" ||
+      !sessionId ||
+      sessionId.length > 100
+    ) {
+      return res.status(400).json({
+        error: "Некорректный идентификатор"
+      });
+    }
 
-  const { data, error } = await supabase
-    .from("chat_messages")
-    .select("id, role, content, created_at")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true })
-    .limit(100);
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("id, role, content, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true })
+      .limit(100);
 
-  if (error) {
-    console.error("Ошибка загрузки сообщений:", error.message);
+    if (error) {
+      console.error("Ошибка загрузки сообщений:", error.message);
+      return res.status(500).json({
+        error: "Не удалось загрузить сообщения"
+      });
+    }
+
+    return res.json({ messages: data });
+  } catch (error) {
+    console.error("Ошибка сервера:", error.message);
     return res.status(500).json({
-      error: "Не удалось загрузить сообщения"
+      error: "Внутренняя ошибка сервера"
     });
   }
-
-  res.json({ messages: data });
 });
 
 app.listen(PORT, () => {
   console.log(`Мой ИИ запущен на порту ${PORT}`);
 });
-        
+           
