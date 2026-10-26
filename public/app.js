@@ -16,10 +16,10 @@ if (!sessionId) {
 
 function addMessage(role, content) {
   const p = document.createElement("p");
-  p.textContent = (role === "user" ? "Ты: " : "Мой ИИ: ") + content;
+  p.textContent =
+    (role === "user" ? "Ты: " : "Мой ИИ: ") + content;
   chat.appendChild(p);
 }
-
 
 async function answer(text) {
   const response = await fetch("/api/chat", {
@@ -38,14 +38,19 @@ async function answer(text) {
     throw new Error(data.error || "Ошибка нейросети");
   }
 
+  if (typeof data.reply !== "string" || !data.reply.trim()) {
+    throw new Error("Нейросеть не вернула ответ");
+  }
+
   return data.reply;
 }
-
 
 async function saveMessage(role, content) {
   const response = await fetch("/api/messages", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify({
       session_id: sessionId,
       role,
@@ -61,14 +66,17 @@ async function saveMessage(role, content) {
 async function loadMessages() {
   try {
     const response = await fetch(
-      "/api/messages?session_id=" + encodeURIComponent(sessionId)
+      "/api/messages?session_id=" +
+      encodeURIComponent(sessionId)
     );
 
-    if (!response.ok) throw new Error("Не удалось загрузить сообщения");
+    if (!response.ok) {
+      throw new Error("Не удалось загрузить сообщения");
+    }
 
     const data = await response.json();
 
-    if (data.messages.length) {
+    if (data.messages?.length) {
       if (welcome) welcome.remove();
       if (quick) quick.remove();
 
@@ -77,13 +85,14 @@ async function loadMessages() {
       });
     }
   } catch (error) {
-    console.error(error);
+    console.error("Ошибка загрузки истории:", error);
   }
 }
 
 async function sendMessage(text) {
   const message = (text || input.value).trim();
-  if (!message) return;
+
+  if (!message || send.disabled) return;
 
   if (welcome) welcome.remove();
   if (quick) quick.remove();
@@ -95,19 +104,27 @@ async function sendMessage(text) {
   try {
     await saveMessage("user", message);
 
-    const reply = answer(message);
+    const reply = await answer(message);
+
     addMessage("assistant", reply);
     await saveMessage("assistant", reply);
   } catch (error) {
-    console.error(error);
-    addMessage("assistant", "Не получилось сохранить сообщение. Проверь подключение к базе данных.");
+    console.error("Ошибка чата:", error);
+
+    addMessage(
+      "assistant",
+      "Не получилось получить ответ. Проверь настройки Gemini в Render. Подробности есть в журнале ошибок."
+    );
   } finally {
     send.disabled = false;
     chat.scrollTop = chat.scrollHeight;
+    input.focus();
   }
 }
 
-send.addEventListener("click", () => sendMessage(""));
+send.addEventListener("click", () => {
+  sendMessage("");
+});
 
 input.addEventListener("keydown", event => {
   if (event.key === "Enter" && !event.shiftKey) {
@@ -119,14 +136,19 @@ input.addEventListener("keydown", event => {
 clear.addEventListener("click", () => {
   chat.replaceChildren();
   input.value = "";
+
   const p = document.createElement("p");
-  p.textContent = "Чат очищен. Старые сообщения пока остаются в базе.";
+  p.textContent =
+    "Чат очищен. Старые сообщения пока остаются в базе.";
+
   chat.appendChild(p);
 });
 
 if (quick) {
   quick.querySelectorAll("[data-q]").forEach(button => {
-    button.addEventListener("click", () => sendMessage(button.dataset.q));
+    button.addEventListener("click", () => {
+      sendMessage(button.dataset.q);
+    });
   });
 }
 
